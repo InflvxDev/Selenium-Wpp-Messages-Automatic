@@ -47,7 +47,7 @@ def enviar_mensaje(contacto, mensaje):
         driver = iniciar_driver()
         url = f"https://web.whatsapp.com/send?phone={contacto}&text={mensaje}"
         driver.get(url)
-        
+
         time.sleep(8)
 
         driver.find_element(By.XPATH, "//footer//button[@data-tab='11' and @aria-label='Enviar']").click()
