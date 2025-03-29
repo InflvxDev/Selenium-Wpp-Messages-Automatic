@@ -29,16 +29,17 @@ def leer_mensajes(numero_contacto):
 
     try:
         if numero_contacto not in estado_usuarios:
-            enviar_mensaje(numero_contacto, "🤖 ¡Hola! Soy *OHIBot*, tu asistente virtual. ¿Necesitas información sobre tu cita? Escribe *Cita* para comenzar.")
+            enviar_mensaje(numero_contacto, "🤖 ¡Hola! Soy *OHIBot*, tu asistente virtual. %0A%0A¿Necesitas información sobre tu cita? Escribe *Cita* para comenzar.")
             estado_usuarios[numero_contacto] = "inicio"
             ultimo_mensaje_enviado[numero_contacto] = "hola"
             guardar_estado()
         else:
-            enviar_mensaje(numero_contacto, "🤖 ¡Hola de nuevo! ¿Necesitas información sobre tu cita? Escribe *Cita* para comenzar.")
+            enviar_mensaje(numero_contacto, "🤖 ¡Hola de nuevo! %0A%0A¿Necesitas información sobre tu cita? Escribe *Cita* para comenzar.")
             ultimo_mensaje_enviado[numero_contacto] = "hola de nuevo"
             guardar_estado()    
         
         cita = None
+        tipo_documento = None
         time.sleep(10)
         
         while True:
@@ -59,8 +60,9 @@ def leer_mensajes(numero_contacto):
                 
                 elif estado_actual == "esperando numero documento":
                     
-
+                    
                     if respuesta.lower() in ["cc", "ti", "ce"]:
+                        tipo_documento = respuesta.upper()
                         enviar_mensaje(numero_contacto, "🔢 Ahora, por favor ingresa tu número de documento (sin puntos ni espacios):")
                         ultimo_mensaje_enviado[numero_contacto] = "ahora, por favor ingresa tu número de documento (sin puntos ni espacios):"
                         estado_usuarios[numero_contacto] = "esperando cita"
@@ -74,17 +76,36 @@ def leer_mensajes(numero_contacto):
 
                     if respuesta.isdigit():
 
-                        cita = buscar_cita(respuesta)
+                        cita = buscar_cita(tipo_documento ,respuesta)
 
                         if cita:
 
-                            if cita['confirmacionCita'] == "":
+                            if cita['confirmacionCita'] in ["", None]:
 
-                                mensaje = f"📅 *Cita encontrada: *\n👨‍⚕️ Médico: {cita['nombreMedico']}\n 🏥 Especialidad: {cita['especialidad']}\n 🗓 Fecha: {cita['fechaCita']}\n\n ✅ ¿Asistirás a la cita? Responde con *si* o *no*."
+                                mensaje = (
+                                    f"📅 *Cita encontrada:* %0A%0A"
+                                    f"📝 *Documento Paciente:* {cita['tipoDocumento']} {cita['documento']}%0A"
+                                    f"👨 *Nombre Paciente:* {cita['nombrePaciente']}%0A"
+                                    f"👨‍⚕️ *Médico:* {cita['nombreMedico']}%0A"
+                                    f"🏥 *Especialidad:* {cita['especialidad']}%0A"
+                                    f"🗓 *Fecha:* {cita['fechaCita']}%0A%0A"
+                                    f"✅ ¿Asistirás a la cita? Responde con *si* o *no*."
+                                )
+                                ultimo_mensaje_enviado[numero_contacto] = respuesta
                                 estado_usuarios[numero_contacto] = "esperando confirmacion"
                             
                             else:
-                                mensaje = f"⚠ Tu cita ya fue confirmada, te puedo dar la informacion de la Cita: 👨‍⚕️ Médico: *{cita['nombreMedico']}* 🏥 Especialidad: *{cita['especialidad']}* 🗓 Fecha: *{cita['fechaCita']}* Asistencia: *{cita['confirmacionCita']}*. Si deseas otra consulta, escribe: *Cita*"
+                                
+                                mensaje = (
+                                    f"⚠ *Tu cita ya fue confirmada.* Te muestro los detalles: %0A%0A"
+                                    f"📝 *Documento Paciente:* {cita['tipoDocumento']} {cita['documento']}%0A"
+                                    f"👨 *Nombre Paciente:* {cita['nombrePaciente']}%0A"
+                                    f"👨‍⚕️ *Médico:* {cita['nombreMedico']}%0A"
+                                    f"🏥 *Especialidad:* {cita['especialidad']}%0A"
+                                    f"🗓 *Fecha:* {cita['fechaCita']}%0A"
+                                    f"📌 *Asistencia:* {cita['confirmacionCita']}%0A%0A"
+                                    f"Si deseas otra consulta, escribe: *Cita*"
+                                )
                                 estado_usuarios[numero_contacto] = "inicio"
                         else:
 
