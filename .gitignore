@@ -1,2 +1,4 @@
 .env
 venv/
+estado_usuarios.json
+__pycache__/
