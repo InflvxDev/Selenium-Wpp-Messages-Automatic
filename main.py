@@ -24,16 +24,38 @@ def cargar_estado():
 
 cargar_estado()
 
-def obtener_ultimo_mensaje():
+def obtener_ultimo_mensaje_numero():
     """Obtiene el último mensaje recibido en la conversación activa."""
     try:
-        mensajes = driver.find_elements(By.XPATH, "//div[@class='_akbu']//span[@class='_ao3e selectable-text copyable-text']")
+        contactos = driver.find_elements(By.XPATH, "//div[contains(@class, '_ak8q')]//span[@title]")
+        mensajes = driver.find_elements(By.XPATH, "//div[contains(@class, '_ak8k')]//span[@dir='ltr']")
+        
         if mensajes:
-            return mensajes[-1].text  # Último mensaje recibido
-        return None
+            ultimo_mensaje = mensajes[0].text
+            ultimo_contacto = contactos[0].text.replace(" ", "")
+            return ultimo_contacto, ultimo_mensaje
+        return None, None
     except Exception as e:
         print(f"❌ Error al obtener mensaje: {e}")
         return None
+
+def monitorear_mensajes():
+    """Monitorea los mensajes nuevos en la conversación activa."""
+    while True:
+        try:
+            numero_contacto, mensaje = obtener_ultimo_mensaje_numero()
+
+            if not numero_contacto.startswith("+"):
+                continue
+            
+            if mensaje and mensaje.strip().lower() == "hola":
+                print(f"📩 Mensaje recibido de {numero_contacto}: {mensaje}")
+                leer_mensajes(numero_contacto)
+             
+            time.sleep(5)
+        except Exception as e:
+            print(f"❌ Error al monitorear mensajes: {e}")    
+
 
 def leer_mensajes(numero_contacto):
     """Lee mensajes nuevos y responde según el flujo de conversación."""
@@ -57,7 +79,7 @@ def leer_mensajes(numero_contacto):
         
         while True:
             
-            respuesta = obtener_ultimo_mensaje()
+            numero_contacto, respuesta = obtener_ultimo_mensaje_numero()
             if respuesta:
 
                 estado_actual = estado_usuarios.get(numero_contacto, "inicio")
@@ -194,7 +216,7 @@ if __name__ == "__main__":
     hilo_recordatorios.start()
 
     # Leer mensajes y responder
-    leer_mensajes("+573135360339")
+    monitorear_mensajes()
 
 
 
