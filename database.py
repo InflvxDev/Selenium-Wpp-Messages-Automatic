@@ -1,4 +1,5 @@
 from config import supabase
+from datetime import datetime, timedelta
 
 def buscar_cita(tipo_documento:str ,documento):
     """Busca una cita en la base de datos por documento."""
@@ -21,3 +22,15 @@ def actualizar_confirmacion_cita(documento, confirmacion):
     except Exception as e:
         print(f"Error al actualizar la confirmación de la cita: {e}")
         return None
+    
+def obtener_citas_proximas():
+    try:
+        fecha_objetivo = (datetime.now() + timedelta(days=3)).strftime("%Y-%m-%d")
+
+        response = supabase.table("Citas").select("*").eq("fechaCita", fecha_objetivo).execute()
+
+        return response.data if response.data else []
+    
+    except Exception as e:
+        print(f"Error al obtener citas próximas: {e}")
+        return []

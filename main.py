@@ -1,7 +1,8 @@
 import time
 import json
+import threading
 from whatsapp import enviar_mensaje, iniciar_driver
-from database import buscar_cita, actualizar_confirmacion_cita
+from database import buscar_cita, actualizar_confirmacion_cita, obtener_citas_proximas
 from selenium.webdriver.common.by import By
 
 driver = iniciar_driver()
@@ -23,6 +24,17 @@ def cargar_estado():
 
 cargar_estado()
 
+def obtener_ultimo_mensaje():
+    """Obtiene el último mensaje recibido en la conversación activa."""
+    try:
+        mensajes = driver.find_elements(By.XPATH, "//div[@class='_akbu']//span[@class='_ao3e selectable-text copyable-text']")
+        if mensajes:
+            return mensajes[-1].text  # Último mensaje recibido
+        return None
+    except Exception as e:
+        print(f"❌ Error al obtener mensaje: {e}")
+        return None
+
 def leer_mensajes(numero_contacto):
     """Lee mensajes nuevos y responde según el flujo de conversación."""
     print("✅  Inicializado sesión de WhatsApp Correctamente")
@@ -36,6 +48,7 @@ def leer_mensajes(numero_contacto):
         else:
             enviar_mensaje(numero_contacto, "🤖 ¡Hola de nuevo! %0A%0A¿Necesitas información sobre tu cita? Escribe *Cita* para comenzar.")
             ultimo_mensaje_enviado[numero_contacto] = "hola de nuevo"
+            estado_usuarios[numero_contacto] = "inicio"
             guardar_estado()    
         
         cita = None
@@ -143,19 +156,45 @@ def leer_mensajes(numero_contacto):
     except Exception as e:
         print(f"❌ Error en el chatbot: {e}")
 
-def obtener_ultimo_mensaje():
-    """Obtiene el último mensaje recibido en la conversación activa."""
-    try:
-        mensajes = driver.find_elements(By.XPATH, "//div[@class='_akbu']//span[@class='_ao3e selectable-text copyable-text']")
-        if mensajes:
-            return mensajes[-1].text  # Último mensaje recibido
-        return None
-    except Exception as e:
-        print(f"❌ Error al obtener mensaje: {e}")
-        return None
 
+
+def enviar_recordatorios():
+    while True:
+        try:
+            citas = obtener_citas_proximas()
+
+            if not citas:
+                print("🔔 No hay citas próximas para enviar recordatorios.")
+                time.sleep(86400)
+                continue
+
+            for cita in citas:
+                mensaje = (
+                    f"📅 *Recordatorio de Cita Médica*%0A%0A"
+                    f"Hola {cita['nombrePaciente']}, este es un recordatorio de tu cita médica.%0A"
+                    f"🏥 *Especialidad:* {cita['especialidad']}%0A"
+                    f"👨‍⚕️ *Médico:* {cita['nombreMedico']}%0A"
+                    f"📅 *Fecha:* {cita['fechaCita']}%0A%0A"
+                )
+                numero_contacto = f"+57{cita['telefonoPaciente']}"
+                enviar_mensaje(numero_contacto, mensaje)
+                time.sleep(2)
+
+            print(f"✅ Recordatorio enviado a {cita['nombrePaciente']} ({numero_contacto})")
+
+            time.sleep(86400)  # Esperar 24 horas antes de enviar el siguiente recordatorio
+        
+        except Exception as e:
+            print(f"❌ Error al enviar recordatorios: {e}")
+                
     
+if __name__ == "__main__":
+    # Iniciar el hilo para enviar recordatorios
+    hilo_recordatorios = threading.Thread(target=enviar_recordatorios)
+    hilo_recordatorios.start()
 
-leer_mensajes("+573135360339")
+    # Leer mensajes y responder
+    leer_mensajes("+573135360339")
+
 
 
