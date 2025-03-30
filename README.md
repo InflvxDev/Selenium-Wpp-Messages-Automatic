@@ -31,4 +31,3 @@ Automatización de WhatsApp para gestión médica con Python y Selenium. OHIBot 
 git clone https://github.com/tu-usuario/Selenium-Wpp-Messages-Automatic.git
 cd Selenium-Wpp-Messages-Automatic
 pip install -r requirements.txt
-py -m venv venv
