@@ -1,60 +1,126 @@
-import time
 import os
+import time
+import logging
+from typing import Optional
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.edge.options import Options
 from selenium.webdriver.edge.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.microsoft import EdgeChromiumDriverManager
+from selenium.common.exceptions import InvalidSessionIdException, WebDriverException
 
-SESSION_DIR = r"C:\Users\sebas\AppData\Local\Microsoft\Edge\User Data"
-EDGE_DRIVER_PATH = EdgeChromiumDriverManager().install()
+logger = logging.getLogger(__name__)
 
+class WhatsAppDriver:
+    def __init__(self):
+        self.driver = None
+        self.max_reintentos = 3
+        self.reintento_espera = 5  # segundos
+        self.session_dir = os.path.expanduser("~/.config/ohibot/whatsapp_session")
+        
+        # Asegurar que el directorio existe
+        os.makedirs(self.session_dir, exist_ok=True)
 
-options = Options()
-options.add_argument("--start-maximized")
-options.add_argument(f"--user-data-dir={SESSION_DIR}")
-options.add_argument("--no-sandbox") 
+    def iniciar_driver(self) -> Optional[webdriver.Edge]:
+        """Inicia el WebDriver con manejo de reconexión."""
+        if self.driver and self._verificar_conexion_activa():
+            return self.driver
 
+        for intento in range(self.max_reintentos):
+            try:
+                if self.driver:
+                    self.driver.quit()
 
-driver = None
+                options = Options()
+                options.add_argument("--start-maximized")
+                options.add_argument(f"--user-data-dir={self.session_dir}")
+                options.add_argument("--no-sandbox")
+                options.add_argument("--disable-dev-shm-usage")
 
-def iniciar_driver():
-    """Inicia el WebDriver solo si no está inicializado."""
-    global driver
-    if driver is None:
+                # Configuraciones adicionales para evitar el error
+                options.add_argument("--disable-gpu")
+                options.add_argument("--allow-running-insecure-content")
+                options.add_argument("--ignore-certificate-errors")
+
+                # Deshabilitar la escritura de preferencias innecesarias
+                options.add_experimental_option("prefs", {
+                    "profile.default_content_setting_values.geolocation": 2,
+                    "profile.managed_default_content_settings.images": 2,
+                    "profile.default_content_settings.cookies": 2
+                })
+
+                service = Service(EdgeChromiumDriverManager().install())
+                self.driver = webdriver.Edge(service=service, options=options)
+                self.driver.get("https://web.whatsapp.com/")
+
+                WebDriverWait(self.driver, 30).until(
+                    EC.presence_of_element_located((By.XPATH, '//div[@role="grid"]'))
+                )
+                logger.info("Sesión de WhatsApp iniciada correctamente")
+                return self.driver
+
+            except Exception as e:
+                logger.error(f"Intento {intento + 1} fallido: {str(e)}")
+                if intento < self.max_reintentos - 1:
+                    time.sleep(self.reintento_espera)
+                else:
+                    logger.critical("No se pudo iniciar el driver después de varios intentos")
+                    return None
+
+    def _verificar_conexion_activa(self) -> bool:
+        """Verifica si la sesión del navegador sigue activa."""
         try:
-            service = Service(executable_path=EDGE_DRIVER_PATH)
-            driver = webdriver.Edge(service=service, options=options)
-            driver.get("https://web.whatsapp.com/")
-            print("🔄 Inicializando sesión de WhatsApp...")
+            if not self.driver:
+                return False
+            # Comando simple para verificar conexión
+            self.driver.current_url
+            return True
+        except (InvalidSessionIdException, WebDriverException):
+            return False
 
-            # Esperar carga inicial (verificar lista de chats)
-            WebDriverWait(driver, 30).until(
-                EC.presence_of_element_located((By.XPATH, '//div[@role="grid"]'))
-            )
-        except Exception as e:
-            print(f"❌ Error crítico al iniciar el navegador: {str(e)}")
-            driver.quit()
-            exit()
-    return driver
+    def enviar_mensaje(self, contacto: str, mensaje: str) -> bool:
+        """Envía mensaje con manejo de reconexión automática."""
+        for intento in range(self.max_reintentos):
+            try:
+                if not self._verificar_conexion_activa():
+                    self.iniciar_driver()
+                    if not self.driver:
+                        return False
 
-def enviar_mensaje(contacto, mensaje):
-    """Envía un mensaje de WhatsApp."""
-    try:
-        driver = iniciar_driver()
-        url = f"https://web.whatsapp.com/send?phone={contacto}&text={mensaje}"
-        driver.get(url)
+                url = f"https://web.whatsapp.com/send?phone={contacto}&text={mensaje}"
+                self.driver.get(url)
 
-        time.sleep(8)
+                WebDriverWait(self.driver, 15).until(
+                    EC.presence_of_element_located((By.XPATH, '//div[@contenteditable="true"]'))
+                )
+                time.sleep(2)
 
-        driver.find_element(By.XPATH, "//footer//button[@data-tab='11' and @aria-label='Enviar']").click()
-        print("✅ Mensaje enviado con éxito!")
+                boton_enviar = WebDriverWait(self.driver, 10).until(
+                    EC.element_to_be_clickable((By.XPATH, '//button[@aria-label="Enviar"]'))
+                )
+                boton_enviar.click()
+                logger.info(f"Mensaje enviado a {contacto}")
+                return True
 
-        time.sleep(5)
-    except Exception as e:
-        print(f"❌ Error al enviar mensaje a {contacto}: {e}")
+            except InvalidSessionIdException:
+                logger.warning(f"Sesión inválida, reintentando... (Intento {intento + 1})")
+                self.driver = None
+                time.sleep(self.reintento_espera)
+            except Exception as e:
+                logger.error(f"Error al enviar mensaje: {str(e)}")
+                if intento < self.max_reintentos - 1:
+                    time.sleep(self.reintento_espera)
+                else:
+                    return False
+        return False
 
+    def cerrar(self):
+        """Cierra el driver de manera segura."""
+        if self.driver:
+            self.driver.quit()
+            self.driver = None
 
+# Instancia global del driver
+whatsapp_driver = WhatsAppDriver()
