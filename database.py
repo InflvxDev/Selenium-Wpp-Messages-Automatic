@@ -1,36 +1,65 @@
-from config import supabase
 from datetime import datetime, timedelta
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel
+from config import supabase, logger
+import logging
 
-def buscar_cita(tipo_documento:str ,documento):
-    """Busca una cita en la base de datos por documento."""
+class Cita(BaseModel):
+    id: Optional[int] = None
+    tipoDocumento: str
+    documento: str
+    nombrePaciente: str
+    especialidad: str
+    nombreMedico: str
+    fechaCita: str
+    telefonoPaciente: str
+    confirmacionCita: Optional[str] = None
+
+
+
+def buscar_cita(tipo_documento: str, documento: str) -> Optional[Cita]:
+    """Busca una cita en la base de datos por documento con validación."""
     try:
-        response = supabase.table("Citas").select("*").eq("tipoDocumento", tipo_documento.upper()).eq("documento", documento).execute()
-
-        if response.data and len(response.data) > 0:
-            return response.data[0]  # Devuelve la primera cita encontrada
-        else:
+        if not documento.isdigit():
+            logger.warning(f"Documento no numérico: {documento}")
             return None
+
+        response = supabase.table("Citas").select("*").eq(
+            "tipoDocumento", tipo_documento.upper()
+        ).eq("documento", documento).limit(1).execute()
+
+        if response.data:
+            return Cita(**response.data[0])
+        return None
     except Exception as e:
-        print(f"Error al consultar la cita: {e}")
+        logger.error(f"Error al buscar cita: {e}", exc_info=True)
         return None
     
-def actualizar_confirmacion_cita(documento, confirmacion):
+def actualizar_confirmacion_cita(documento: str, confirmacion : str) -> bool:
     """Actualiza la confirmación de la cita en la base de datos."""
     try:
+        confirmacion = confirmacion.lower()
+        if confirmacion not in ["si", "no"]:
+            logger.warning(f"El valor de confirmación {confirmacion} no es válido. Debe ser 'si' o 'no'.")
+            return False
+
         response = supabase.table("Citas").update({"confirmacionCita": confirmacion}).eq("documento", documento).execute()
-        return response.data[0] if response.data else None
-    except Exception as e:
-        print(f"Error al actualizar la confirmación de la cita: {e}")
-        return None
+
+        return True if response.data else False
     
-def obtener_citas_proximas():
+    except Exception as e:
+        logger.error(f"Error al actualizar la confirmación de la cita: {e}", exc_info=True)
+        return False
+    
+def obtener_citas_proximas(dias: int = 3) -> List[Cita]:
     try:
         fecha_objetivo = (datetime.now() + timedelta(days=3)).strftime("%Y-%m-%d")
 
         response = supabase.table("Citas").select("*").eq("fechaCita", fecha_objetivo).execute()
+     
 
-        return response.data if response.data else []
+        return [Cita(**cita) for cita in response.data] if response.data else []
     
     except Exception as e:
-        print(f"Error al obtener citas próximas: {e}")
+        logger.error(f"Error al obtener citas próximas: {e}", exc_info=True)
         return []
