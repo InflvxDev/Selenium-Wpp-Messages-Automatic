@@ -39,18 +39,6 @@ class WhatsAppDriver:
                 options.add_argument("--no-sandbox")
                 options.add_argument("--disable-dev-shm-usage")
 
-                # Configuraciones adicionales para evitar el error
-                options.add_argument("--disable-gpu")
-                options.add_argument("--allow-running-insecure-content")
-                options.add_argument("--ignore-certificate-errors")
-
-                # Deshabilitar la escritura de preferencias innecesarias
-                options.add_experimental_option("prefs", {
-                    "profile.default_content_setting_values.geolocation": 2,
-                    "profile.managed_default_content_settings.images": 2,
-                    "profile.default_content_settings.cookies": 2
-                })
-
                 service = Service(EdgeChromiumDriverManager().install())
                 self.driver = webdriver.Edge(service=service, options=options)
                 self.driver.get("https://web.whatsapp.com/")
