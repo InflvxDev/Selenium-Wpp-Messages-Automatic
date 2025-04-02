@@ -26,6 +26,7 @@ class SesionUsuario:
     intentos: int = 0
     cita_actual: Optional[Cita] = None
     ultimo_mensaje: Optional[str] = None
+    ultimo_mensaje_bloqueo: Optional[datetime] = None 
     tipo_documento: Optional[str] = None
     ultima_interaccion: datetime = datetime.now()
     bloqueado_hasta: Optional[datetime] = None
@@ -114,10 +115,20 @@ class OHIBot:
         if sesion.bloqueado_hasta and datetime.now() < sesion.bloqueado_hasta:
             tiempo_restante = sesion.bloqueado_hasta - datetime.now()
             minutos = int(tiempo_restante.total_seconds() / 60)
-            whatsapp_driver.enviar_mensaje(
-                numero,
-                f"⏳ Has excedido el número máximo de intentos. Por favor intenta nuevamente en {minutos} minutos."
-            )
+
+            ultimo_mensaje_bloqueo = getattr(sesion, "ultimo_mensaje_bloqueo", None)
+            if not ultimo_mensaje_bloqueo or (datetime.now() - ultimo_mensaje_bloqueo).total_seconds() > 600:
+                
+                whatsapp_driver.enviar_mensaje(
+                    numero,
+                    f"⏳ Has excedido el número máximo de intentos. Por favor intenta nuevamente en {minutos} minutos."
+                )
+                
+                sesion.ultimo_mensaje_bloqueo = datetime.now()
+                self.estado_usuarios[numero] = sesion
+                self.guardar_estado()
+
+            
             return True
         elif sesion.bloqueado_hasta:
             sesion.bloqueado_hasta = None
