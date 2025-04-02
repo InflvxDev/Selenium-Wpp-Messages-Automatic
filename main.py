@@ -1,17 +1,18 @@
 import json
-import time
 import threading
 import re
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 from enum import Enum, auto
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from whatsapp import whatsapp_driver
+from datetime import datetime, time, timedelta
+from fastapi import FastAPI, Request, Response, status
+from pydantic import BaseModel
+import uvicorn
+from whatsapp import whatsapp_api
 from database import buscar_cita, actualizar_confirmacion_cita, obtener_citas_proximas, Cita
-from config import logger
+from config import logger, VERIFY_TOKEN
+
+app = FastAPI()
 
 class EstadoUsuario(Enum):
     INICIO = auto()
@@ -30,6 +31,11 @@ class SesionUsuario:
     tipo_documento: Optional[str] = None
     ultima_interaccion: datetime = datetime.now()
     bloqueado_hasta: Optional[datetime] = None
+
+class WhatsAppMessage(BaseModel):
+    from_num: str
+    message: str
+    timestamp: datetime
 
 class OHIBot:
     def __init__(self):
@@ -80,35 +86,6 @@ class OHIBot:
         except Exception as e:
             logger.error(f"Error al guardar estado: {e}")
 
-    def obtener_ultimo_mensaje(self) -> Tuple[Optional[str], Optional[str]]:
-        """Obtiene el último mensaje recibido con manejo robusto de errores."""
-        try:
-            driver = whatsapp_driver.iniciar_driver()
-            if not driver:
-                return None, None
-
-            contactos = WebDriverWait(driver, 10).until(
-                EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, '_ak8q')]//span[@title]"))
-            )
-            mensajes = WebDriverWait(driver, 10).until(
-                EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, '_ak8k')]"))
-            )
-
-            if mensajes and contactos:
-                ultimo_mensaje = mensajes[0].text
-                ultimo_contacto = contactos[0].text.replace(" ", "")
-
-                if ultimo_contacto in self.grupos_ignorados:
-                    return None, None
-
-                if ultimo_contacto.startswith("+"):
-                    return ultimo_contacto, ultimo_mensaje
-
-            return None, None
-        except Exception as e:
-            logger.error(f"Error al obtener mensaje: {e}", exc_info=True)
-            return None, None
-
     def usuario_bloqueado(self, numero: str) -> bool:
         """Verifica si el usuario está temporalmente bloqueado."""
         sesion = self.estado_usuarios.get(numero, SesionUsuario())
@@ -118,17 +95,14 @@ class OHIBot:
 
             ultimo_mensaje_bloqueo = getattr(sesion, "ultimo_mensaje_bloqueo", None)
             if not ultimo_mensaje_bloqueo or (datetime.now() - ultimo_mensaje_bloqueo).total_seconds() > 600:
-                
-                whatsapp_driver.enviar_mensaje(
+                whatsapp_api.send_message(
                     numero,
                     f"⏳ Has excedido el número máximo de intentos. Por favor intenta nuevamente en {minutos} minutos."
                 )
-                
                 sesion.ultimo_mensaje_bloqueo = datetime.now()
                 self.estado_usuarios[numero] = sesion
                 self.guardar_estado()
 
-            
             return True
         elif sesion.bloqueado_hasta:
             sesion.bloqueado_hasta = None
@@ -159,13 +133,13 @@ class OHIBot:
         if mensaje.lower() == "hola":
             respuesta = ("🤖 ¡Hola! Soy *OHIBot*, tu asistente virtual. %0A%0A"
                        "¿Necesitas información sobre tu cita? Escribe *Cita* para comenzar.")
-            whatsapp_driver.enviar_mensaje(numero, respuesta)
+            whatsapp_api.send_message(numero, respuesta)
             sesion.estado = EstadoUsuario.INICIO
             sesion.ultimo_mensaje = self.normalizar_mensaje(respuesta)
         
         elif mensaje.lower() == "cita" and sesion.estado == EstadoUsuario.INICIO:
             respuesta = "📄 Por favor, ingresa el tipo de documento a consultar: *CC / TI / CE*"
-            whatsapp_driver.enviar_mensaje(numero, respuesta)
+            whatsapp_api.send_message(numero, respuesta)
             sesion.estado = EstadoUsuario.ESPERANDO_TIPO_DOCUMENTO
             sesion.ultimo_mensaje = self.normalizar_mensaje(respuesta)
         
@@ -182,7 +156,6 @@ class OHIBot:
             return
         
         mensaje = self.normalizar_mensaje(mensaje)
-        # Verificar si el usuario está repitiendo nuestro mensaje
         if (sesion.ultimo_mensaje and 
             mensaje.strip().lower() == sesion.ultimo_mensaje.lower()):
             return
@@ -193,11 +166,10 @@ class OHIBot:
             sesion.estado = EstadoUsuario.ESPERANDO_NUMERO_DOCUMENTO
             sesion.intentos = 0
             respuesta = "🔢 Ahora, por favor ingresa tu número de documento (sin puntos ni espacios):"
-            whatsapp_driver.enviar_mensaje(numero, respuesta)
+            whatsapp_api.send_message(numero, respuesta)
             sesion.ultimo_mensaje = self.normalizar_mensaje(respuesta)
 
         else:
-            # Solo contar como intento si es un mensaje nuevo
             if not sesion.ultimo_mensaje or "error tipo documento" not in sesion.ultimo_mensaje.lower():
                 sesion.intentos += 1
             
@@ -207,7 +179,7 @@ class OHIBot:
             else:
                 respuesta = "❌ El tipo de documento ingresado no es válido. Inténtalo de nuevo (CC / TI / CE)."
             
-            whatsapp_driver.enviar_mensaje(numero, respuesta)
+            whatsapp_api.send_message(numero, respuesta)
             sesion.ultimo_mensaje = self.normalizar_mensaje(respuesta)
 
         self.estado_usuarios[numero] = sesion
@@ -260,9 +232,8 @@ class OHIBot:
                 respuesta = "⚠ No encontré ninguna cita con ese documento. Si deseas intentar otra consulta, escribe: *Cita*"
                 sesion.estado = EstadoUsuario.INICIO
             
-            whatsapp_driver.enviar_mensaje(numero, respuesta)
+            whatsapp_api.send_message(numero, respuesta)
         else:
-            # Solo contar como intento si es un mensaje nuevo
             if not sesion.ultimo_mensaje or "error número documento" not in sesion.ultimo_mensaje.lower():
                 sesion.intentos += 1
             
@@ -272,7 +243,7 @@ class OHIBot:
             else:
                 respuesta = "❌ El número de documento ingresado no es válido. Inténtalo de nuevo (solo números)."
             
-            whatsapp_driver.enviar_mensaje(numero, respuesta)
+            whatsapp_api.send_message(numero, respuesta)
             sesion.ultimo_mensaje = self.normalizar_mensaje(respuesta)
             
         self.estado_usuarios[numero] = sesion
@@ -285,8 +256,8 @@ class OHIBot:
             return
         
         mensaje = self.normalizar_mensaje(mensaje)
-        if (sesion.ultimo_mensaje_enviado and 
-            mensaje.strip().lower() == sesion.ultimo_mensaje_enviado.lower()):
+        if (sesion.ultimo_mensaje and 
+            mensaje.strip().lower() == sesion.ultimo_mensaje.lower()):
             return
 
         respuesta = mensaje.lower().strip()
@@ -301,16 +272,15 @@ class OHIBot:
                     mensaje_respuesta = (
                         "👍 Entendido. Si deseas otra consulta, escribe: *Cita*."
                     )
-                whatsapp_driver.enviar_mensaje(numero, mensaje_respuesta)
+                whatsapp_api.send_message(numero, mensaje_respuesta)
             else:
-                whatsapp_driver.enviar_mensaje(
+                whatsapp_api.send_message(
                     numero,
                     "❌ Hubo un error al actualizar tu confirmación. Por favor intenta nuevamente más tarde."
                 )
             sesion.estado = EstadoUsuario.INICIO
             sesion.cita_actual = None
         else:
-            # Solo contar como intento si es un mensaje nuevo
             if not sesion.ultimo_mensaje or "error confirmación" not in sesion.ultimo_mensaje.lower():
                 sesion.intentos += 1
             
@@ -320,7 +290,7 @@ class OHIBot:
             else:
                 respuesta_msg = "❓ Por favor, responde con *si* o *no*."
             
-            whatsapp_driver.enviar_mensaje(numero, respuesta_msg)
+            whatsapp_api.send_message(numero, respuesta_msg)
             sesion.ultimo_mensaje = self.normalizar_mensaje(respuesta)
         
         self.estado_usuarios[numero] = sesion
@@ -333,7 +303,6 @@ class OHIBot:
 
         sesion = self.estado_usuarios.get(numero, SesionUsuario())
         sesion.ultima_interaccion = datetime.now()
-    
 
         if sesion.estado == EstadoUsuario.INICIO:
             self.manejar_mensaje_inicio(numero, mensaje)
@@ -350,11 +319,6 @@ class OHIBot:
     def enviar_recordatorios(self):
         while True:
             try:
-                # Esperar conexión estable
-                if not self._esperar_conexion_whatsapp():
-                    time.sleep(60)
-                    continue
-
                 citas = obtener_citas_proximas()
                 if not citas:
                     logger.info("No hay citas próximas para recordatorios")
@@ -368,40 +332,16 @@ class OHIBot:
                     mensaje = self._crear_mensaje_recordatorio(cita)
                     numero = f"+57{cita.telefonoPaciente}"
                     
-                    if not self._enviar_mensaje_seguro(numero, mensaje):
+                    if not whatsapp_api.send_message(numero, mensaje):
                         logger.error(f"No se pudo enviar recordatorio a {cita.nombrePaciente}")
-                        # Reintentar conexión si falla
-                        if not self._esperar_conexion_whatsapp():
-                            break  # Salir del bucle de citas si no se puede reconectar
 
-                    time.sleep(2)  # Pausa entre mensajes
+                    time.sleep(2)
 
-                time.sleep(86400)  # Esperar 24 horas
+                time.sleep(86400)
 
             except Exception as e:
                 logger.error(f"Error crítico en recordatorios: {e}", exc_info=True)
-                time.sleep(3600)  # Esperar 1 hora antes de reintentar
-
-    def _esperar_conexion_whatsapp(self, timeout_min=5) -> bool:
-        """Espera hasta que WhatsApp esté conectado."""
-        timeout = time.time() + 60 * timeout_min
-        while time.time() < timeout:
-            if whatsapp_driver.iniciar_driver():
-                return True
-            time.sleep(10)
-        return False
-
-    def _enviar_mensaje_seguro(self, numero: str, mensaje: str) -> bool:
-        """Intenta enviar mensaje con múltiples reintentos."""
-        max_intentos = 3
-        for intento in range(max_intentos):
-            try:
-                if whatsapp_driver.enviar_mensaje(numero, mensaje):
-                    return True
-            except Exception as e:
-                logger.warning(f"Intento {intento + 1} fallido: {str(e)}")
-                time.sleep(5)
-        return False
+                time.sleep(3600)
 
     def _crear_mensaje_recordatorio(self, cita) -> str:
         """Genera el texto del mensaje de recordatorio."""
@@ -413,30 +353,59 @@ class OHIBot:
             f"📅 *Fecha:* {cita.fechaCita}%0A%0A"
             f"Por favor llega 15 minutos antes de tu hora programada."
         )
+
+# Crear instancia global del bot
+bot = OHIBot()
+
+@app.get("/webhook")
+async def verify_webhook(request: Request):
+    """Verificación del webhook para WhatsApp"""
+    mode = request.query_params.get("hub.mode")
+    token = request.query_params.get("hub.verify_token")
+    challenge = request.query_params.get("hub.challenge")
+    
+    if mode and token:
+        if mode == "subscribe" and token == VERIFY_TOKEN:
+            logger.info("Webhook verificado")
+            return Response(content=challenge, status_code=status.HTTP_200_OK)
+    
+    logger.error("Fallo en verificación de webhook")
+    return Response(status_code=status.HTTP_403_FORBIDDEN)
+
+@app.post("/webhook")
+async def process_webhook(request: Request):
+    """Procesa los mensajes entrantes de WhatsApp"""
+    data = await request.json()
+    
+    try:
+        entry = data["entry"][0]
+        changes = entry["changes"][0]
+        value = changes["value"]
         
-    def iniciar(self):
-        """Inicia el bot principal."""
-        try:
-            # Hilo para recordatorios
-            threading.Thread(
-                target=self.enviar_recordatorios,
-                daemon=True
-            ).start()
+        if "messages" in value:
+            message_data = value["messages"][0]
+            from_num = message_data["from"]
+            message = message_data["text"]["body"]
+            timestamp = datetime.fromtimestamp(int(message_data["timestamp"]))
+            
+            # Procesar el mensaje
+            bot.procesar_mensaje(from_num, message)
+            
+    except Exception as e:
+        logger.error(f"Error procesando webhook: {e}")
+    
+    return Response(status_code=status.HTTP_200_OK)
 
-            # Bucle principal
-            logger.info("OHIBot iniciado. Esperando mensajes...")
-            while True:
-                numero, mensaje = self.obtener_ultimo_mensaje()
-                if numero and mensaje:
-                    self.procesar_mensaje(numero, mensaje)
-                time.sleep(5)
-
-        except KeyboardInterrupt:
-            logger.info("Deteniendo OHIBot...")
-        finally:
-            whatsapp_driver.cerrar()
-            self.guardar_estado()
+def iniciar_bot():
+    """Función para iniciar el bot y el servidor web"""
+    # Iniciar hilo para recordatorios
+    threading.Thread(
+        target=bot.enviar_recordatorios,
+        daemon=True
+    ).start()
+    
+    # Iniciar servidor web
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 
 if __name__ == "__main__":
-    bot = OHIBot()
-    bot.iniciar()
+    iniciar_bot()

@@ -28,6 +28,15 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 if not validate_supabase_url(SUPABASE_URL):
     raise ConfigError("Error: SUPABASE_URL no es una URL válida.")
 
+WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
+WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+WHATSAPP_BUISNESS_ACCOUNT_ID = os.getenv("WHATSAPP_BUISNESS_ACCOUNT_ID")
+VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
+
+if not WHATSAPP_TOKEN or not WHATSAPP_PHONE_NUMBER_ID:
+    raise ConfigError("Error: se requieren WHATSAPP_TOKEN y WHATSAPP_PHONE_NUMBER_ID en el archivo .env")
+
+
 try: 
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 except Exception as e:

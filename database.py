@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from config import supabase, logger
-import logging
+
 
 class Cita(BaseModel):
     id: Optional[int] = None
@@ -14,8 +14,6 @@ class Cita(BaseModel):
     fechaCita: str
     telefonoPaciente: str
     confirmacionCita: Optional[str] = None
-
-
 
 def buscar_cita(tipo_documento: str, documento: str) -> Optional[Cita]:
     """Busca una cita en la base de datos por documento con validación."""
@@ -35,7 +33,7 @@ def buscar_cita(tipo_documento: str, documento: str) -> Optional[Cita]:
         logger.error(f"Error al buscar cita: {e}", exc_info=True)
         return None
     
-def actualizar_confirmacion_cita(documento: str, confirmacion : str) -> bool:
+def actualizar_confirmacion_cita(documento: str, confirmacion: str) -> bool:
     """Actualiza la confirmación de la cita en la base de datos."""
     try:
         confirmacion = confirmacion.lower()
@@ -53,11 +51,10 @@ def actualizar_confirmacion_cita(documento: str, confirmacion : str) -> bool:
     
 def obtener_citas_proximas(dias: int = 3) -> List[Cita]:
     try:
-        fecha_objetivo = (datetime.now() + timedelta(days=3)).strftime("%Y-%m-%d")
+        fecha_objetivo = (datetime.now() + timedelta(days=dias)).strftime("%Y-%m-%d")
 
         response = supabase.table("Citas").select("*").eq("fechaCita", fecha_objetivo).execute()
      
-
         return [Cita(**cita) for cita in response.data] if response.data else []
     
     except Exception as e:

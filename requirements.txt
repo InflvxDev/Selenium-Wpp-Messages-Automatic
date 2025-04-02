@@ -1,4 +1,9 @@
+fastapi
+uvicorn
+python-dotenv
+supabase
+requests
+pydantic
+python-dateutil
 selenium
 webdriver-manager
-supabase
-python-dotenv
