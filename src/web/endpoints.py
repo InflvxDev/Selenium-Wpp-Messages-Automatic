@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Request, Response, status
-from src.core import logger, VERIFY_TOKEN
-from src.services import MessageHandler
-from src.core import StateManager
+from src.core import logger, VERIFY_TOKEN, StateManager
+from src.services.message_handlers import MessageHandler
 
 router = APIRouter()
 

@@ -2,10 +2,10 @@ import threading
 import uvicorn
 from src.web.server import app
 from src.core.state_manager import StateManager 
-from src.services import whatsapp_api , MessageHandler
+from src.services import whatsapp_api, obtener_citas_proximas
 from src.core import logger
-from datetime import datetime, timedelta
-from src.services import obtener_citas_proximas
+from src.services.message_handlers import MessageHandler
+
 
 class ReminderService:
     def __init__(self, message_handler):

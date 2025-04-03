@@ -243,3 +243,4 @@ class MessageHandler:
             f"📅 *Fecha:* {cita.fechaCita}%0A%0A"
             f"Por favor llega 15 minutos antes de tu hora programada."
         )
+    
