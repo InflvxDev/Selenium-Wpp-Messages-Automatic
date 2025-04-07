@@ -137,19 +137,45 @@ class OHIBot:
         return False
     
     def normalizar_mensaje(self, texto: str) -> str:
-        """Normaliza el texto removiendo emojis, caracteres especiales y convirtiendo a minúsculas."""
+
         if not texto:
             return ""
-        
-        # Remover emojis
+
+        # Diccionario de reemplazo para tildes
+        replacements = {
+            'á': 'a',
+            'é': 'e',
+            'í': 'i',
+            'ó': 'o',
+            'ú': 'u',
+            'ü': 'u',
+            'Á': 'A',
+            'É': 'E',
+            'Í': 'I',
+            'Ó': 'O',
+            'Ú': 'U',
+            'Ü': 'U',
+            'ñ': 'n',
+            'Ñ': 'N'
+        }
+
+        # Reemplazar caracteres acentuados
+        for old, new in replacements.items():
+            texto = texto.replace(old, new)
+
+        # Remover emojis (conservando signos de puntuación)
         texto_sin_emojis = texto.encode('ascii', 'ignore').decode('ascii')
-        
-        # Remover caracteres especiales (conservando letras, números y espacios)
-        texto_limpio = re.sub(r'[^\w\s]', '', texto_sin_emojis)
-        
+
+        # Conservar letras, números, espacios y signos de puntuación básicos
+        texto_limpio = re.sub(r'[^\w\s.,;:?¿!¡]', '', texto_sin_emojis)
+
         # Convertir a minúsculas y quitar espacios extras
         texto_normalizado = texto_limpio.lower().strip()
-        
+
+        # Manejar caso especial de "escribiendo..."
+        if "escribiendo" in texto_normalizado:
+            return "escribiendo"
+
         return texto_normalizado
 
     def manejar_mensaje_inicio(self, numero: str, mensaje: str):
@@ -187,7 +213,7 @@ class OHIBot:
             mensaje.strip().lower() == sesion.ultimo_mensaje.lower()):
             return
         
-        if mensaje == "escribiendo":
+        if mensaje.lower() in ["escribiendo", "escribiendo..."]:
             return
 
         tipo_doc = mensaje.lower().strip()
@@ -230,7 +256,7 @@ class OHIBot:
             mensaje.strip().lower() == sesion.ultimo_mensaje.lower()):
             return
         
-        if mensaje == "escribiendo":
+        if mensaje.lower() in ["escribiendo", "escribiendo..."]:
             return
         
         print(f"Mensaje recibido: {mensaje}")
@@ -269,7 +295,8 @@ class OHIBot:
                 sesion.estado = EstadoUsuario.INICIO
             
             whatsapp_driver.enviar_mensaje(numero, respuesta)
-            sesion.ultimo_mensaje = self.normalizar_mensaje(respuesta)
+            sesion.ultimo_mensaje = self.normalizar_mensaje(respuesta.replace("%0A", ""))
+            
         else:
             # Solo contar como intento si es un mensaje nuevo
             if not sesion.ultimo_mensaje or "error número documento" not in sesion.ultimo_mensaje.lower():
@@ -293,14 +320,12 @@ class OHIBot:
         if not sesion or not sesion.cita_actual:
             return
         
-        print (f"Mensaje recibido: {mensaje.strip().lower()} y sesion.ultimo_mensaje: {sesion.ultimo_mensaje}")
-        
         mensaje = self.normalizar_mensaje(mensaje)
         if (sesion.ultimo_mensaje and 
             mensaje.strip().lower() == sesion.ultimo_mensaje.lower()):
             return
         
-        if mensaje == "escribiendo":
+        if mensaje.lower() in ["escribiendo", "escribiendo..."]:
             return
 
         respuesta = mensaje.lower().strip()
