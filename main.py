@@ -187,6 +187,9 @@ class OHIBot:
             mensaje.strip().lower() == sesion.ultimo_mensaje.lower()):
             return
         
+        if mensaje == "escribiendo":
+            return
+
         tipo_doc = mensaje.lower().strip()
         if tipo_doc in ["cc", "ti", "ce"]:
             sesion.tipo_documento = tipo_doc.upper()
@@ -198,7 +201,7 @@ class OHIBot:
 
         else:
             # Solo contar como intento si es un mensaje nuevo
-            if not sesion.ultimo_mensaje or "error tipo documento" not in sesion.ultimo_mensaje.lower():
+            if not sesion.ultimo_mensaje or "error tipo documento" or "escribiendo" not in sesion.ultimo_mensaje.lower():
                 sesion.intentos += 1
             
             if sesion.intentos >= self.max_intentos:
@@ -226,6 +229,11 @@ class OHIBot:
         if (sesion.ultimo_mensaje and 
             mensaje.strip().lower() == sesion.ultimo_mensaje.lower()):
             return
+        
+        if mensaje == "escribiendo":
+            return
+        
+        print(f"Mensaje recibido: {mensaje}")
 
         if mensaje.isdigit():
             cita = buscar_cita(sesion.tipo_documento, mensaje)
@@ -261,6 +269,7 @@ class OHIBot:
                 sesion.estado = EstadoUsuario.INICIO
             
             whatsapp_driver.enviar_mensaje(numero, respuesta)
+            sesion.ultimo_mensaje = self.normalizar_mensaje(respuesta)
         else:
             # Solo contar como intento si es un mensaje nuevo
             if not sesion.ultimo_mensaje or "error número documento" not in sesion.ultimo_mensaje.lower():
@@ -284,9 +293,14 @@ class OHIBot:
         if not sesion or not sesion.cita_actual:
             return
         
+        print (f"Mensaje recibido: {mensaje.strip().lower()} y sesion.ultimo_mensaje: {sesion.ultimo_mensaje}")
+        
         mensaje = self.normalizar_mensaje(mensaje)
-        if (sesion.ultimo_mensaje_enviado and 
-            mensaje.strip().lower() == sesion.ultimo_mensaje_enviado.lower()):
+        if (sesion.ultimo_mensaje and 
+            mensaje.strip().lower() == sesion.ultimo_mensaje.lower()):
+            return
+        
+        if mensaje == "escribiendo":
             return
 
         respuesta = mensaje.lower().strip()
