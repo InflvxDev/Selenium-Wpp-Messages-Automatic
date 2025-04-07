@@ -27,16 +27,15 @@ def buscar_cita(tipo_documento: str, documento: str) -> Optional[Cita]:
 
         response = supabase.table("Citas").select("*").eq(
             "tipoDocumento", tipo_documento.upper()
-        ).eq("documento", documento).limit(1).execute()
+        ).eq("documento", documento).execute()
 
-        if response.data:
-            return Cita(**response.data[0])
-        return None
+        print(f"Response data: {response.data}")
+        return [Cita(**cita) for cita in response.data] if response.data else None
     except Exception as e:
         logger.error(f"Error al buscar cita: {e}", exc_info=True)
         return None
     
-def actualizar_confirmacion_cita(documento: str, confirmacion : str) -> bool:
+def actualizar_confirmacion_cita(cita_id: int, confirmacion : str) -> bool:
     """Actualiza la confirmación de la cita en la base de datos."""
     try:
         confirmacion = confirmacion.lower()
@@ -44,7 +43,7 @@ def actualizar_confirmacion_cita(documento: str, confirmacion : str) -> bool:
             logger.warning(f"El valor de confirmación {confirmacion} no es válido. Debe ser 'si' o 'no'.")
             return False
 
-        response = supabase.table("Citas").update({"confirmacionCita": confirmacion}).eq("documento", documento).execute()
+        response = supabase.table("Citas").update({"confirmacionCita": confirmacion}).eq("id", cita_id).execute()
 
         return True if response.data else False
     

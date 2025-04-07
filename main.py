@@ -2,9 +2,9 @@ import json
 import time
 import threading
 import re
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, List
 from enum import Enum, auto
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
@@ -19,11 +19,13 @@ class EstadoUsuario(Enum):
     ESPERANDO_NUMERO_DOCUMENTO = auto()
     ESPERANDO_CONFIRMACION = auto()
     CITA_ENCONTRADA = auto()
+    SELECIONANDO_CITA = auto()
 
 @dataclass
 class SesionUsuario:
     estado: EstadoUsuario = EstadoUsuario.INICIO
     intentos: int = 0
+    citas_pendientes: List[Cita] = field(default_factory=list)
     cita_actual: Optional[Cita] = None
     ultimo_mensaje: Optional[str] = None
     ultimo_mensaje_bloqueo: Optional[datetime] = None 
@@ -259,36 +261,44 @@ class OHIBot:
         if mensaje.lower() in ["escribiendo", "escribiendo..."]:
             return
         
-        print(f"Mensaje recibido: {mensaje}")
 
         if mensaje.isdigit():
-            cita = buscar_cita(sesion.tipo_documento, mensaje)
-            sesion.cita_actual = cita
+
+            citas = buscar_cita(sesion.tipo_documento, mensaje)
+            sesion.citas_pendientes = citas
             sesion.intentos = 0
             
-            if cita:
-                if not cita.confirmacionCita:
-                    respuesta = (
-                        f"📅 *Cita encontrada:* %0A%0A"
-                        f"📝 *Documento Paciente:* {cita.tipoDocumento} {cita.documento}%0A"
-                        f"👨 *Nombre Paciente:* {cita.nombrePaciente}%0A"
-                        f"👨‍⚕️ *Médico:* {cita.nombreMedico}%0A"
-                        f"🏥 *Especialidad:* {cita.especialidad}%0A"
-                        f"🗓 *Fecha:* {cita.fechaCita}%0A%0A"
-                        f"✅ ¿Asistirás a la cita? Responde con *si* o *no*."
-                    )
-                    sesion.estado = EstadoUsuario.ESPERANDO_CONFIRMACION
+            if citas:
+
+                citas_sin_confirmar = [cita for cita in citas if cita.confirmacionCita not in ["si", "no"]]
+
+                if citas_sin_confirmar:
+                    if len(citas_sin_confirmar) == 1:
+                        sesion.cita_actual = citas_sin_confirmar[0]
+                        respuesta = self._crear_mensaje_cita(sesion.cita_actual)
+                        sesion.estado = EstadoUsuario.ESPERANDO_CONFIRMACION
+                    else:
+                        respuesta = "📅 *Tienes varias citas sin confirmar:*%0A%0A"
+                        for i, cita in enumerate(citas_sin_confirmar):
+                            respuesta += (
+                                f"*{i+1}*. 👨‍⚕️ *Médico:* {cita.nombreMedico}%0A"
+                                f"   🏥 *Especialidad:* {cita.especialidad}%0A"
+                                f"   📅 *Fecha:* {cita.fechaCita}%0A%0A"
+                            )
+                        respuesta += "Por favor responde con el número de la cita que deseas confirmar."
+                        respuesta += "(Para cancelar el proceso, escribe *cancelar*)"
+                        sesion.estado = EstadoUsuario.SELECIONANDO_CITA
                 else:
-                    respuesta = (
-                        f"⚠ *Tu cita ya fue confirmada.* Te muestro los detalles: %0A%0A"
-                        f"📝 *Documento Paciente:* {cita.tipoDocumento} {cita.documento}%0A"
-                        f"👨 *Nombre Paciente:* {cita.nombrePaciente}%0A"
-                        f"👨‍⚕️ *Médico:* {cita.nombreMedico}%0A"
-                        f"🏥 *Especialidad:* {cita.especialidad}%0A"
-                        f"🗓 *Fecha:* {cita.fechaCita}%0A"
-                        f"📌 *Asistencia:* {cita.confirmacionCita}%0A%0A"
-                        f"Si deseas otra consulta, escribe: *Cita*"
-                    )
+                    respuesta = "📅 *Todas tus citas ya están confirmadas:*%0A%0A"
+                    for cita in citas:
+                        estado = "✅ Confirmada" if cita.confirmacionCita.lower() == "si" else "❌ No asistirás"
+                        respuesta += (
+                            f"👨‍⚕️ *Médico:* {cita.nombreMedico}%0A"
+                            f"🏥 *Especialidad:* {cita.especialidad}%0A"
+                            f"📅 *Fecha:* {cita.fechaCita}%0A"
+                            f"{estado}%0A%0A"
+                        )
+                    respuesta += "Si necesitas otra consulta, escribe: *Cita*"
                     sesion.estado = EstadoUsuario.INICIO
             else:
                 respuesta = "⚠ No encontré ninguna cita con ese documento. Si deseas intentar otra consulta, escribe: *Cita*"
@@ -296,7 +306,7 @@ class OHIBot:
             
             whatsapp_driver.enviar_mensaje(numero, respuesta)
             sesion.ultimo_mensaje = self.normalizar_mensaje(respuesta.replace("%0A", ""))
-            
+       
         else:
             # Solo contar como intento si es un mensaje nuevo
             if not sesion.ultimo_mensaje or "error número documento" not in sesion.ultimo_mensaje.lower():
@@ -314,6 +324,47 @@ class OHIBot:
         self.estado_usuarios[numero] = sesion
         self.guardar_estado()
 
+    def manejar_seleccion_cita(self, numero: str, mensaje: str):
+        """Maneja la selección de cita cuando hay múltiples opciones."""
+        sesion = self.estado_usuarios.get(numero)
+        if not sesion or not sesion.citas_pendientes:
+            return
+        
+        mensaje = self.normalizar_mensaje(mensaje)
+        if (sesion.ultimo_mensaje and 
+            mensaje.strip().lower() == sesion.ultimo_mensaje.lower()):
+            return
+        
+        if mensaje.lower() in ["escribiendo", "escribiendo..."]:
+            return
+
+        # Filtrar citas sin confirmar
+        citas_sin_confirmar = [cita for cita in sesion.citas_pendientes if cita.confirmacionCita not in ["si", "no"]]
+
+        print(f"mensaje usuario: {mensaje}")
+
+        if mensaje.lower().strip() == "cancelar":
+            respuesta = "❌ Has cancelado la selección de citas. Si deseas otra consulta, escribe: *Cita*."
+            sesion.estado = EstadoUsuario.INICIO
+            sesion.cita_actual = None
+            sesion.citas_pendientes = []
+        
+        elif mensaje.isdigit():
+            seleccion = int(mensaje)
+            if 1 <= seleccion <= len(citas_sin_confirmar):
+                sesion.cita_actual = citas_sin_confirmar[seleccion - 1]
+                respuesta = self._crear_mensaje_cita(sesion.cita_actual)
+                sesion.estado = EstadoUsuario.ESPERANDO_CONFIRMACION
+            else:
+                respuesta = f"❌ Por favor selecciona un número entre 1 y {len(citas_sin_confirmar)}."
+        else:
+            respuesta = "❌ Por favor ingresa solo el número de la cita que deseas confirmar."
+        
+        whatsapp_driver.enviar_mensaje(numero, respuesta)
+        sesion.ultimo_mensaje = self.normalizar_mensaje(respuesta)
+        self.estado_usuarios[numero] = sesion
+        self.guardar_estado()
+
     def manejar_confirmacion(self, numero: str, mensaje: str):
         """Maneja la confirmación de asistencia a la cita con verificación de repetición."""
         sesion = self.estado_usuarios.get(numero)
@@ -327,27 +378,78 @@ class OHIBot:
         
         if mensaje.lower() in ["escribiendo", "escribiendo..."]:
             return
-
-        respuesta = mensaje.lower().strip()
-        if respuesta in ["si", "no"]:
-            if actualizar_confirmacion_cita(sesion.cita_actual.documento, respuesta):
-                if respuesta == "si":
-                    mensaje_respuesta = (
-                        f"✅ ¡Genial! Te esperamos el *{sesion.cita_actual.fechaCita}* "
-                        f"para tu cita programada. Si necesitas otra consulta, escribe: *Cita*."
-                    )
-                else:
-                    mensaje_respuesta = (
-                        "👍 Entendido. Si deseas otra consulta, escribe: *Cita*."
-                    )
-                whatsapp_driver.enviar_mensaje(numero, mensaje_respuesta)
-            else:
-                whatsapp_driver.enviar_mensaje(
-                    numero,
-                    "❌ Hubo un error al actualizar tu confirmación. Por favor intenta nuevamente más tarde."
-                )
+        
+        if mensaje.lower().strip() == "cancelar":
+            respuesta = "❌ Has cancelado la selección de citas. Si deseas otra consulta, escribe: *Cita*."
             sesion.estado = EstadoUsuario.INICIO
             sesion.cita_actual = None
+            sesion.citas_pendientes = []
+        
+        respuesta_usuario = mensaje.lower().strip()
+        if respuesta_usuario in ["si", "no"]:
+            if actualizar_confirmacion_cita(sesion.cita_actual.id, respuesta_usuario):
+
+                for i, cita in enumerate(sesion.citas_pendientes):
+                    if cita.id == sesion.cita_actual.id:
+                        sesion.citas_pendientes[i].confirmacionCita = respuesta_usuario
+                        break
+
+                if mensaje.lower().strip() == "si":
+                    respuesta = (
+                        f"✅ ¡Genial! Te esperamos el *{sesion.cita_actual.fechaCita}* "
+                        f"para tu cita con el Dr. {sesion.cita_actual.nombreMedico}."
+                    )
+                else:
+                    respuesta = (
+                        "👍 Entendido. Si deseas otra consulta, escribe: *Cita*."
+                    )
+
+                whatsapp_driver.enviar_mensaje(numero, respuesta)
+
+                citas_sin_confirmar = [
+                    cita for cita in sesion.citas_pendientes
+                    if not cita.confirmacionCita or cita.confirmacionCita not in ["si", "no"]
+                ]
+
+                if citas_sin_confirmar:
+                    sesion.cita_actual = None
+                    if len(citas_sin_confirmar) == 1:
+                        sesion.cita_actual = citas_sin_confirmar[0]
+                        respuesta = "📅 Solo tienes una *Cita* sin confirmar: %0A%0A"
+                        respuesta += self._crear_mensaje_cita(sesion.cita_actual)
+                        sesion.estado = EstadoUsuario.ESPERANDO_CONFIRMACION
+                    else:
+                        respuesta = "📅 *Tienes mas citas sin confirmar:*%0A%0A"
+                        for i, cita in enumerate(citas_sin_confirmar):
+                            respuesta += (
+                                f"{i+1}. 👨‍⚕️ *Médico:* {cita.nombreMedico}%0A"
+                                f"   🏥 *Especialidad:* {cita.especialidad}%0A"
+                                f"   📅 *Fecha:* {cita.fechaCita}%0A%0A"
+                            )
+                        respuesta += "Por favor responde con el número de la cita que deseas confirmar."
+                        respuesta += "(Para cancelar el proceso, escribe *cancelar*)"
+                        sesion.estado = EstadoUsuario.SELECIONANDO_CITA
+                else:
+                    respuesta += "📅 *Resumen de tus citas:*%0A%0A"
+                    for cita in sesion.citas_pendientes:
+                        estado = "✅ Confirmada" if cita.confirmacionCita.lower() == "si" else "❌ No asistirás"
+                        respuesta += (
+                            f"👨‍⚕️ *Médico:* {cita.nombreMedico}%0A"
+                            f"🏥 *Especialidad:* {cita.especialidad}%0A"
+                            f"📅 *Fecha:* {cita.fechaCita}%0A"
+                            f"{estado}%0A%0A"
+                            f"Si necesitas otra consulta, escribe: *Cita*."
+                        )
+                    sesion.estado = EstadoUsuario.INICIO
+                    sesion.cita_actual = None
+                    sesion.citas_pendientes = []     
+                
+            else:
+                respuesta = "❌ Hubo un error al actualizar tu confirmación. Por favor intenta nuevamente más tarde."
+
+            whatsapp_driver.enviar_mensaje(numero, respuesta)
+            sesion.ultimo_mensaje = self.normalizar_mensaje(respuesta.replace("%0A", ""))
+
         else:
             # Solo contar como intento si es un mensaje nuevo
             if not sesion.ultimo_mensaje or "error confirmación" not in sesion.ultimo_mensaje.lower():
@@ -355,15 +457,27 @@ class OHIBot:
             
             if sesion.intentos >= self.max_intentos:
                 sesion.bloqueado_hasta = datetime.now() + self.tiempo_bloqueo
-                respuesta_msg = "⏳ Has excedido el número máximo de intentos. Por favor intenta nuevamente más tarde."
+                respuesta = "⏳ Has excedido el número máximo de intentos. Por favor intenta nuevamente más tarde."
             else:
-                respuesta_msg = "❓ Por favor, responde con *si* o *no*."
+                respuesta = "❓ Por favor, responde con *si* o *no*."
             
-            whatsapp_driver.enviar_mensaje(numero, respuesta_msg)
+            whatsapp_driver.enviar_mensaje(numero, respuesta)
             sesion.ultimo_mensaje = self.normalizar_mensaje(respuesta)
         
         self.estado_usuarios[numero] = sesion
         self.guardar_estado()
+
+    def _crear_mensaje_cita(self, cita: Cita) -> str:
+
+        return (
+            f"📅 *Cita encontrada:*%0A%0A"
+            f"📝 *Documento Paciente:* {cita.tipoDocumento} {cita.documento}%0A"
+            f"👨 *Nombre Paciente:* {cita.nombrePaciente}%0A"
+            f"👨‍⚕️ *Médico:* {cita.nombreMedico}%0A"
+            f"🏥 *Especialidad:* {cita.especialidad}%0A"
+            f"📅 *Fecha:* {cita.fechaCita}%0A%0A"
+            f"✅ ¿Asistirás a esta cita? Responde con *si* o *no*."
+        )
 
     def procesar_mensaje(self, numero: str, mensaje: str):
         """Procesa el mensaje según el estado actual del usuario."""
@@ -380,6 +494,8 @@ class OHIBot:
             self.manejar_tipo_documento(numero, mensaje)
         elif sesion.estado == EstadoUsuario.ESPERANDO_NUMERO_DOCUMENTO:
             self.manejar_numero_documento(numero, mensaje)
+        elif sesion.estado == EstadoUsuario.SELECIONANDO_CITA:
+            self.manejar_seleccion_cita(numero, mensaje)
         elif sesion.estado == EstadoUsuario.ESPERANDO_CONFIRMACION:
             self.manejar_confirmacion(numero, mensaje)
         
