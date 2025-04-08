@@ -20,17 +20,24 @@ class Cita(BaseModel):
 def buscar_cita(tipo_documento: str, documento: str) -> Optional[Cita]:
     """Busca una cita en la base de datos por documento con validación."""
     try:
-        print(f"Buscando cita con tipo_documento: {tipo_documento} y documento: {documento}")
+
         if not documento.isdigit():
             logger.warning(f"Documento no numérico: {documento}")
             return None
+
+        fecha_actual = datetime.now().strftime("%Y-%m-%d")
 
         response = supabase.table("Citas").select("*").eq(
             "tipoDocumento", tipo_documento.upper()
         ).eq("documento", documento).execute()
 
-        print(f"Response data: {response.data}")
-        return [Cita(**cita) for cita in response.data] if response.data else None
+        citas_filtradas = []
+
+        for cita in response.data:
+            if cita["fechaCita"] >= fecha_actual:
+                citas_filtradas.append(cita)
+
+        return [Cita(**cita) for cita in citas_filtradas] if citas_filtradas else None
     except Exception as e:
         logger.error(f"Error al buscar cita: {e}", exc_info=True)
         return None
