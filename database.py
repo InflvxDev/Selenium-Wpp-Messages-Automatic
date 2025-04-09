@@ -3,6 +3,7 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from config import supabase, logger
 import logging
+from email_service import EmailService
 
 class Cita(BaseModel):
     id: Optional[int] = None
@@ -49,10 +50,24 @@ def actualizar_confirmacion_cita(cita_id: int, confirmacion : str) -> bool:
         if confirmacion not in ["si", "no"]:
             logger.warning(f"El valor de confirmación {confirmacion} no es válido. Debe ser 'si' o 'no'.")
             return False
+        
+        # Obtenemos los datos actuales de la cita
+        response = supabase.table("Citas").select("*").eq("id", cita_id).execute()
+        if not response.data:
+            logger.warning(f"Cita no encontrada: ID {cita_id}")
+            return False
+            
+        cita_actual = Cita(**response.data[0])
 
-        response = supabase.table("Citas").update({"confirmacionCita": confirmacion}).eq("id", cita_id).execute()
+        update_response = supabase.table("Citas").update({"confirmacionCita": confirmacion}).eq("id", cita_id).execute()
 
-        return True if response.data else False
+        if update_response.data:
+            # Si se actualizó a "no", enviamos email
+            if confirmacion == "no":
+                email_service = EmailService()
+                email_service.enviar_email_cancelacion(cita_actual)
+            return True
+        return False
     
     except Exception as e:
         logger.error(f"Error al actualizar la confirmación de la cita: {e}", exc_info=True)
