@@ -198,16 +198,16 @@ class OHIBot:
         
         if mensaje.lower() == "hola":
             respuesta = (
-                "🤖 ¡Hola! Soy *BOHI*, tu asistente virtual.%0A%0A"
-                "¿Quieres consultar una cita médica? Escribe *Cita* para comenzar. 🩺"
+                "👋 ¡Hola! Soy *BOHI* 🤖✨, tu asistente virtual de citas médicas.%0A%0A"
+                "¿Te gustaría consultar tus próximas citas? Escribe *Cita* para comenzar. 🩺"
             )
             whatsapp_driver.enviar_mensaje(numero, respuesta)
             sesion.estado = EstadoUsuario.INICIO
             sesion.ultimo_mensaje = self.normalizar_mensaje(respuesta)
         
         elif mensaje.lower() == "cita" and sesion.estado == EstadoUsuario.INICIO:
-            respuesta = "🆔 Por favor, indica el tipo de documento (solo las siglas):%0A%0A"
-            respuesta += (  
+            respuesta = (
+                "🆔 Para continuar, indícame el *tipo de documento* (solo las siglas):%0A%0A"
                 "- Cédula de Ciudadanía: *CC*%0A"
                 "- Tarjeta de Identidad: *TI*%0A"
                 "- Cédula de Extranjería: *CE*%0A"
@@ -219,7 +219,7 @@ class OHIBot:
                 "- Certificado de Nacido Vivo: *CN*%0A"
                 "- Adulto sin Identificación: *AS*%0A"
                 "- Menor sin Identificación: *MS*%0A"
-                "- Permiso por Protección Temporal: *PT*%0A"
+                "- Permiso por Protección Temporal: *PT*"
             )
             whatsapp_driver.enviar_mensaje(numero, respuesta)
             sesion.estado = EstadoUsuario.ESPERANDO_TIPO_DOCUMENTO
@@ -296,7 +296,7 @@ class OHIBot:
             
             if citas:
                 sesion.citas_confirmadas = [cita for cita in citas if cita.confirmacionCita == "si"]
-                respuesta = "📅 *Tus citas ya Programadas:*%0A%0A"
+                respuesta = "📅 *Estas son tus citas programadas:*%0A%0A"
                 for cita in citas:
                     estado = "✅ Confirmada" if cita.confirmacionCita.lower() == "si" else "❌ No asistirás"
                     respuesta += (
@@ -305,11 +305,16 @@ class OHIBot:
                         f"📅 *Fecha:* {cita.fechaCita}%0A"
                         f"{estado}%0A%0A"
                     )
-                respuesta += "🩺 Si necesitas otra consulta, escribe: *Cita*%0A"
-                respuesta += "ℹ️ Para cancelar un cita ya programada, escribe *cancelar cita*."
+                respuesta += (
+                    "⚠️ ¿Deseas cancelar una cita? Escribe *cancelar cita*.%0A"
+                    "🩺 ¿Deseas consultar otra cita? Escribe *Cita*."
+                )
                 sesion.estado = EstadoUsuario.SELECIONANDO_OPCIONES
             else:
-                respuesta = "⚠️ No encontré ninguna cita actual o proxima con ese documento. Si deseas intentar otra consulta, escribe: *Cita*"
+                respuesta = (
+                    "⚠️ No se encontraron citas registradas con este documento.%0A"
+                    "Si deseas intentarlo de nuevo, escribe *Cita*."
+                )
                 sesion.estado = EstadoUsuario.INICIO
             
             whatsapp_driver.enviar_mensaje(numero, respuesta)
@@ -352,15 +357,17 @@ class OHIBot:
         
 
         if mensaje.lower().strip() == "cancelar cita" and sesion.citas_confirmadas:
-            respuesta = "⚠️ *¿Cual de tus Citas confirmadas quieres cancelar?:*%0A%0A"
+            respuesta = "⚠️ ¿Cuál de tus citas confirmadas deseas cancelar?%0A%0A"
             for i, cita in enumerate(sesion.citas_confirmadas):
                 respuesta += (
                     f"{i+1}. 👨‍⚕️ *Médico:* {cita.nombreMedico}%0A"
                     f"   🏥 *Especialidad:* {cita.especialidad}%0A"
                     f"   📅 *Fecha:* {cita.fechaCita}%0A%0A"
                 )
-            respuesta += "✏️ Escribe el número de la cita que deseas cancelar.%0A"
-            respuesta += "ℹ️ si quieres terminar el proceso de cancelacion, escribe *terminar*."
+            respuesta += (
+                "✏️ Escribe el número de la cita que deseas cancelar.%0A"
+                "ℹ️ Para salir de este proceso, escribe *terminar*."
+            )
 
             whatsapp_driver.enviar_mensaje(numero, respuesta)
             sesion.ultimo_mensaje = self.normalizar_mensaje(respuesta.replace("%0A", ""))
@@ -469,14 +476,14 @@ class OHIBot:
         if mensaje == "si":
             exito = actualizar_confirmacion_cita(sesion.cita_actual.id, "no")
             if exito:
-                respuesta = "✅ Tu cita ha sido *cancelada exitosamente*. Si deseas otra consulta, escribe: *Cita*."
+                respuesta = "✅ Tu cita ha sido *cancelada con éxito*. Si deseas hacer otra consulta, escribe: *Cita*."
             else:
                 respuesta = "❌ Ocurrió un error al cancelar la cita. Intenta más tarde."
             sesion.estado = EstadoUsuario.INICIO
             sesion.cita_actual = None
             sesion.citas_confirmadas = []
         elif mensaje == "no":
-            respuesta = "📅 Entendido. Tu cita *no será cancelada*. Si deseas otra consulta, escribe: *Cita*."
+            respuesta = "📅 Perfecto. Tu cita *no ha sido cancelada*. Si deseas otra consulta, escribe: *Cita*."
             sesion.estado = EstadoUsuario.INICIO
             sesion.cita_actual = None
             sesion.citas_confirmadas = []
@@ -500,14 +507,14 @@ class OHIBot:
     def _crear_mensaje_cita(self, cita: Cita) -> str:
 
         return (
-            f"⚠️ *Cita a cancelar:*%0A%0A"
-            f"📝 *Documento Paciente:* {cita.tipoDocumento} {cita.documento}%0A"
-            f"👤 *Nombre Paciente:* {cita.nombrePaciente}%0A"
+            f"⚠️ *Cita seleccionada para cancelar:*%0A%0A"
+            f"📝 *Documento:* {cita.tipoDocumento} {cita.documento}%0A"
+            f"👤 *Paciente:* {cita.nombrePaciente}%0A"
             f"👨‍⚕️ *Médico:* {cita.nombreMedico}%0A"
             f"🏥 *Especialidad:* {cita.especialidad}%0A"
             f"📅 *Fecha:* {cita.fechaCita}%0A%0A"
-            f"⚠️ ¿Estas de seguro de cancelar esta cita? Responde con *si* o *no*.%0A"
-            f"ℹ️ Para terminar el proceso, escribe *terminar*."
+            f"¿Estás seguro de cancelar esta cita? Responde con *sí* o *no*.%0A"
+            f"ℹ️ Si deseas salir, escribe *terminar*."
         )
 
     def procesar_mensaje(self, numero: str, mensaje: str):
@@ -595,11 +602,11 @@ class OHIBot:
         """Genera el texto del mensaje de recordatorio."""
         return (
             f"📅 *Recordatorio de Cita Médica*%0A%0A"
-            f"Hola {cita.nombrePaciente}, este es un recordatorio de tu cita médica.%0A"
+            f"Hola {cita.nombrePaciente}, te recordamos que tienes una cita médica programada:%0A"
             f"🏥 *Especialidad:* {cita.especialidad}%0A"
             f"👨‍⚕️ *Médico:* {cita.nombreMedico}%0A"
             f"📅 *Fecha:* {cita.fechaCita}%0A%0A"
-            f"Por favor llega 15 minutos antes de tu hora programada."
+            f"⏰ Te recomendamos llegar 15 minutos antes."
         )
         
     def iniciar(self):
